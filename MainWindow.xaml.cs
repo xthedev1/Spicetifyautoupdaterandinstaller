@@ -94,13 +94,30 @@ namespace SpicetifyAutoUpdater
                     // Check for success message in output
                     if (!string.IsNullOrEmpty(installOutput) && installOutput.ToLower().Contains("spicetify was successfully installed!"))
                     {
+                        txtOutput.AppendText("\r\nSpicetify installed successfully! Installing Spicetify Marketplace...\r\n");
+                        bool marketplaceInstalled = false;
+                        
+                        try
+                        {
+                            string marketplaceOutput = await InstallSpicetifyMarketplace();
+                            txtOutput.AppendText("Spicetify Marketplace installed successfully!\r\n");
+                            marketplaceInstalled = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            txtOutput.AppendText($"\r\nWarning: Spicetify Marketplace installation failed: {ex.Message}\r\n");
+                            txtOutput.AppendText("Spicetify is still installed and functional.\r\n");
+                        }
+                        
                         btnCheckUpdates.IsEnabled = false;
                         btnCheckUpdates.Content = "Spicetify Installed!";
-                        var openSpotify = MessageBox.Show(
-                            "Spicetify was successfully installed! Would you like to close this app and open Spotify now?",
-                            "Installation Complete",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Question);
+                        
+                        string message = marketplaceInstalled 
+                            ? "Spicetify and Spicetify Marketplace were successfully installed! Would you like to close this app and open Spotify now?"
+                            : "Spicetify was successfully installed! (Marketplace installation failed)\r\nWould you like to close this app and open Spotify now?";
+                            
+                        var openSpotify = MessageBox.Show(message, "Installation Complete", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        
                         if (openSpotify == MessageBoxResult.Yes)
                         {
                             try
@@ -139,6 +156,30 @@ namespace SpicetifyAutoUpdater
             // Run the PowerShell install command
             string psCmd = "iwr -useb https://raw.githubusercontent.com/spicetify/cli/main/install.ps1 | iex";
             return await ExecuteCommandAsync("powershell", $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCmd}\"", true);
+        }
+
+        private async Task<string> InstallSpicetifyMarketplace()
+        {
+            // Try multiple approaches to install Spicetify Marketplace
+            try
+            {
+                // First, try using curl (available on Windows 10+)
+                string curlCmd = "curl -fsSL https://raw.githubusercontent.com/spicetify/marketplace/main/resources/install.sh | sh";
+                return await ExecuteCommandAsync("cmd", $"/c {curlCmd}", true);
+            }
+            catch (Exception ex1)
+            {
+                try
+                {
+                    // Fallback: try using PowerShell to download and execute
+                    string psCmd = "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/spicetify/marketplace/main/resources/install.sh' -OutFile '$env:TEMP\\install_marketplace.sh'; if (Get-Command bash -ErrorAction SilentlyContinue) { bash '$env:TEMP\\install_marketplace.sh' } else { Write-Host 'Bash not available, marketplace installation skipped' }";
+                    return await ExecuteCommandAsync("powershell", $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCmd}\"", true);
+                }
+                catch (Exception ex2)
+                {
+                    throw new Exception($"Marketplace installation failed. Curl error: {ex1.Message}. PowerShell error: {ex2.Message}");
+                }
+            }
         }
 
         private void btnConsole_Click(object sender, RoutedEventArgs e)
