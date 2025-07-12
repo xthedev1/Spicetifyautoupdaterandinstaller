@@ -10,6 +10,7 @@ using System.Diagnostics;
 using Newtonsoft.Json;
 using System.Windows.Media;
 using System.ComponentModel;
+using System.Collections.Generic;
 
 namespace SpicetifyAutoUpdater
 {
@@ -21,13 +22,17 @@ namespace SpicetifyAutoUpdater
         private readonly HttpClient httpClient;
         private bool isSpicetifyInstalled = false;
         private bool isConsoleVisible = false;
+        private readonly List<Process> startedPowerShellProcesses = new List<Process>();
+        private bool isInstalling = false;
+        private bool installCompleted = false;
+        private bool isClosing = false;
 
         public MainWindow()
         {
             InitializeComponent();
             httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "SpicetifyAutoUpdater/1.0");
-            
+
             // Initialize console as hidden
             panelConsole.Visibility = Visibility.Collapsed;
             this.Height = 300; // Initial height
@@ -57,6 +62,10 @@ namespace SpicetifyAutoUpdater
 
         private async Task CheckSpicetifyInstallation()
         {
+            if (isInstalling || installCompleted || isClosing)
+            {
+                return;
+            }
             try
             {
                 var result = await ExecuteCommandAsync("spicetify", "--version", false);
@@ -68,10 +77,13 @@ namespace SpicetifyAutoUpdater
             }
             catch (Exception ex)
             {
-                ModernMessageBox.Show(
-                    $"Error checking Spicetify installation: {ex.Message}",
-                    "Error",
-                    MessageBoxImage.Error);
+                if (!isClosing)
+                {
+                    ModernMessageBox.Show(
+                        $"Error checking Spicetify installation: {ex.Message}",
+                        "Error",
+                        MessageBoxImage.Error);
+                }
                 isSpicetifyInstalled = false; // Ensure prompt is shown
             }
 
@@ -84,40 +96,26 @@ namespace SpicetifyAutoUpdater
                     MessageBoxImage.Question);
                 if (res == MessageBoxResult.Yes)
                 {
+                    isInstalling = true;
                     // Show console
                     if (!isConsoleVisible)
                     {
                         btnConsole_Click(this, new RoutedEventArgs());
                     }
                     txtOutput.AppendText("Installing Spicetify...\r\n");
-                    string installOutput = await InstallSpicetify();
+                    string installOutput = await InstallSpicetifyAndMarketplace();
                     // Check for success message in output
-                    if (!string.IsNullOrEmpty(installOutput) && installOutput.ToLower().Contains("spicetify was successfully installed!"))
+                    if (!string.IsNullOrEmpty(installOutput) && installOutput.ToLower().Contains("run spicetify -h to get started"))
                     {
-                        txtOutput.AppendText("\r\nSpicetify installed successfully! Installing Spicetify Marketplace...\r\n");
-                        bool marketplaceInstalled = false;
-                        
-                        try
-                        {
-                            string marketplaceOutput = await InstallSpicetifyMarketplace();
-                            txtOutput.AppendText("Spicetify Marketplace installed successfully!\r\n");
-                            marketplaceInstalled = true;
-                        }
-                        catch (Exception ex)
-                        {
-                            txtOutput.AppendText($"\r\nWarning: Spicetify Marketplace installation failed: {ex.Message}\r\n");
-                            txtOutput.AppendText("Spicetify is still installed and functional.\r\n");
-                        }
-                        
                         btnCheckUpdates.IsEnabled = false;
                         btnCheckUpdates.Content = "Spicetify Installed!";
-                        
-                        string message = marketplaceInstalled 
-                            ? "Spicetify and Spicetify Marketplace were successfully installed! Would you like to close this app and open Spotify now?"
-                            : "Spicetify was successfully installed! (Marketplace installation failed)\r\nWould you like to close this app and open Spotify now?";
-                            
-                        var openSpotify = MessageBox.Show(message, "Installation Complete", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                        
+                        installCompleted = true;
+                        isInstalling = false;
+                        var openSpotify = MessageBox.Show(
+                            "Spicetify and Spicetify Marketplace were successfully installed! Would you like to close this app and open Spotify now?",
+                            "Installation Complete",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Question);
                         if (openSpotify == MessageBoxResult.Yes)
                         {
                             try
@@ -137,10 +135,14 @@ namespace SpicetifyAutoUpdater
                     }
                     else
                     {
+                        isInstalling = false;
                         ModernMessageBox.Show("Spicetify installation did not complete successfully. Please check the console output for details.", "Install Failed", MessageBoxImage.Error);
                     }
-                    // Re-check installation
-                    await CheckSpicetifyInstallation();
+                    // Re-check installation only if not completed or closing
+                    if (!installCompleted && !isClosing)
+                    {
+                        await CheckSpicetifyInstallation();
+                    }
                     return;
                 }
                 else
@@ -151,35 +153,208 @@ namespace SpicetifyAutoUpdater
             }
         }
 
-        private async Task<string> InstallSpicetify()
+        // Sequential install: Spicetify, wait for message, then Marketplace
+        private async Task<string> InstallSpicetifyAndMarketplace()
         {
-            // Run the PowerShell install command
-            string psCmd = "iwr -useb https://raw.githubusercontent.com/spicetify/cli/main/install.ps1 | iex";
-            return await ExecuteCommandAsync("powershell", $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCmd}\"", true);
-        }
-
-        private async Task<string> InstallSpicetifyMarketplace()
-        {
-            // Try multiple approaches to install Spicetify Marketplace
+            var outputBuilder = new StringBuilder();
+            bool sawSuccess = false;
             try
             {
-                // First, try using curl (available on Windows 10+)
-                string curlCmd = "curl -fsSL https://raw.githubusercontent.com/spicetify/marketplace/main/resources/install.sh | sh";
-                return await ExecuteCommandAsync("cmd", $"/c {curlCmd}", true);
+                this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Starting Spicetify install...\r\n"));
+                string psCmd = "iwr -useb https://raw.githubusercontent.com/spicetify/cli/main/install.ps1 | iex";
+                bool sawSuccessMessage = false;
+                Process? spicetifyProcess = null;
+                await ExecuteCommandAsyncWithCallback(
+                    "powershell",
+                    $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCmd}\"",
+                    true,
+                    (line) =>
+                    {
+                        if (line != null)
+                        {
+                            outputBuilder.AppendLine("[SPICETIFY OUT] " + line);
+                            this.Dispatcher.Invoke(() => txtOutput.AppendText("[SPICETIFY OUT] " + line + "\r\n"));
+                            if (line.ToLower().Contains("run spicetify -h to get started"))
+                            {
+                                this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Detected success message in Spicetify output.\r\n"));
+                                sawSuccessMessage = true;
+                                if (spicetifyProcess != null && !spicetifyProcess.HasExited)
+                                {
+                                    try
+                                    {
+                                        spicetifyProcess.Kill(true);
+                                        this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Killed Spicetify PowerShell process after success message.\r\n"));
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] Failed to kill process: {ex.Message}\r\n"));
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    (proc) => spicetifyProcess = proc,
+                    ignoreExitCodeIfSuccessMessage: true,
+                    wasSuccessMessageSeen: () => sawSuccessMessage
+                );
+                this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Finished Spicetify process.\r\n"));
+                if (sawSuccessMessage)
+                {
+                    sawSuccess = true;
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] About to start Marketplace install...\r\n"));
+                }
+                else
+                {
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] ERROR: Spicetify install did not complete as expected (missing message).\r\n"));
+                }
+                this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Spicetify install finished.\r\n"));
             }
-            catch (Exception ex1)
+            catch (Exception ex)
+            {
+                this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] ERROR during Spicetify install: {ex.Message}\r\n"));
+            }
+
+            // 2. Install Marketplace if Spicetify install succeeded
+            if (sawSuccess)
             {
                 try
                 {
-                    // Fallback: try using PowerShell to download and execute
-                    string psCmd = "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/spicetify/marketplace/main/resources/install.sh' -OutFile '$env:TEMP\\install_marketplace.sh'; if (Get-Command bash -ErrorAction SilentlyContinue) { bash '$env:TEMP\\install_marketplace.sh' } else { Write-Host 'Bash not available, marketplace installation skipped' }";
-                    return await ExecuteCommandAsync("powershell", $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCmd}\"", true);
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Starting Marketplace install...\r\n"));
+                    string marketOutput = await InstallSpicetifyMarketplaceWithDebug();
+                    outputBuilder.AppendLine(marketOutput);
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Marketplace install finished.\r\n"));
                 }
-                catch (Exception ex2)
+                catch (Exception ex)
                 {
-                    throw new Exception($"Marketplace installation failed. Curl error: {ex1.Message}. PowerShell error: {ex2.Message}");
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] ERROR: Marketplace install failed: {ex.Message}\r\n"));
                 }
             }
+            return outputBuilder.ToString();
+        }
+
+        // Modified to accept a process callback and ignore exit code if success message seen
+        private async Task<string?> ExecuteCommandAsyncWithCallback(
+            string command,
+            string arguments,
+            bool showOutput,
+            Action<string?>? onOutputLine,
+            Action<Process>? onProcessCreated = null,
+            bool ignoreExitCodeIfSuccessMessage = false,
+            Func<bool>? wasSuccessMessageSeen = null)
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = command,
+                Arguments = arguments,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
+            };
+
+            // Kill any previous PowerShell processes started by this app if running a new PowerShell command
+            if (command.ToLower().Contains("powershell"))
+            {
+                KillStartedPowerShells();
+            }
+
+            var process = new Process { StartInfo = startInfo };
+            if (command.ToLower().Contains("powershell"))
+            {
+                startedPowerShellProcesses.Add(process);
+            }
+            onProcessCreated?.Invoke(process);
+            var outputBuilder = new StringBuilder();
+
+            process.OutputDataReceived += (s, e) => {
+                if (e.Data != null)
+                {
+                    outputBuilder.AppendLine(e.Data);
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText(e.Data + "\r\n"));
+                    onOutputLine?.Invoke(e.Data);
+                }
+            };
+            process.ErrorDataReceived += (s, e) => {
+                if (e.Data != null)
+                {
+                    outputBuilder.AppendLine(e.Data);
+                    this.Dispatcher.Invoke(() => txtOutput.AppendText("ERROR: " + e.Data + "\r\n"));
+                    onOutputLine?.Invoke(e.Data);
+                }
+            };
+
+            this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] Starting process: {command} {arguments}\r\n"));
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            await process.WaitForExitAsync();
+            this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] Process exited: {command} {arguments} (ExitCode: {process.ExitCode})\r\n"));
+
+            if (process.ExitCode != 0 && !outputBuilder.ToString().Contains("is not recognized"))
+            {
+                if (!(ignoreExitCodeIfSuccessMessage && wasSuccessMessageSeen != null && wasSuccessMessageSeen()))
+                {
+                    throw new Exception($"Command failed with exit code {process.ExitCode}.");
+                }
+            }
+
+            return outputBuilder.ToString();
+        }
+
+        private void KillStartedPowerShells()
+        {
+            foreach (var proc in startedPowerShellProcesses.ToArray())
+            {
+                try
+                {
+                    if (!proc.HasExited)
+                    {
+                        proc.Kill(true);
+                        this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Killed old PowerShell process.\r\n"));
+                    }
+                }
+                catch { /* ignore */ }
+                startedPowerShellProcesses.Remove(proc);
+            }
+        }
+
+        private async Task<string> InstallSpicetifyMarketplaceWithDebug()
+        {
+            this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Entered InstallSpicetifyMarketplaceWithDebug\r\n"));
+            var psCmd = "iwr -useb https://raw.githubusercontent.com/spicetify/marketplace/main/resources/install.ps1 | iex";
+            var outputBuilder = new StringBuilder();
+            bool success = false;
+            try
+            {
+                this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Running Marketplace install with PowerShell...\r\n"));
+                string psOutput = await ExecuteCommandAsyncWithCallback(
+                    "powershell",
+                    $"-NoProfile -ExecutionPolicy Bypass -Command \"{psCmd}\"",
+                    true,
+                    (line) =>
+                    {
+                        if (line != null)
+                        {
+                            outputBuilder.AppendLine("[MARKET OUT] " + line);
+                            this.Dispatcher.Invoke(() => txtOutput.AppendText("[MARKET OUT] " + line + "\r\n"));
+                        }
+                    }
+                ) ?? string.Empty;
+                outputBuilder.AppendLine("--- PowerShell Output ---\r\n" + psOutput);
+                success = true;
+            }
+            catch (Exception ex)
+            {
+                outputBuilder.AppendLine($"[MARKET ERR] PowerShell install failed: {ex.Message}");
+                this.Dispatcher.Invoke(() => txtOutput.AppendText($"[MARKET ERR] PowerShell install failed: {ex.Message}\r\n"));
+            }
+            if (!success)
+            {
+                throw new Exception(outputBuilder.ToString());
+            }
+            return outputBuilder.ToString();
         }
 
         private void btnConsole_Click(object sender, RoutedEventArgs e)
@@ -320,13 +495,15 @@ namespace SpicetifyAutoUpdater
             var outputBuilder = new StringBuilder();
 
             process.OutputDataReceived += (s, e) => {
-                if (e.Data != null) {
+                if (e.Data != null)
+                {
                     outputBuilder.AppendLine(e.Data);
                     this.Dispatcher.Invoke(() => txtOutput.AppendText(e.Data + "\r\n"));
                 }
             };
             process.ErrorDataReceived += (s, e) => {
-                if (e.Data != null) {
+                if (e.Data != null)
+                {
                     outputBuilder.AppendLine(e.Data);
                     this.Dispatcher.Invoke(() => txtOutput.AppendText("ERROR: " + e.Data + "\r\n"));
                 }
@@ -347,7 +524,9 @@ namespace SpicetifyAutoUpdater
 
         protected override void OnClosed(EventArgs e)
         {
+            isClosing = true;
             httpClient.Dispose();
+            KillStartedPowerShells();
             base.OnClosed(e);
         }
 
