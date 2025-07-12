@@ -19,15 +19,11 @@ A modern WPF application that automatically checks for and installs updates for 
 
 ## Installation
 
-1. **Clone this repository:**
-   ```sh
-   git clone https://github.com/YOUR_USERNAME/SpicetifyAutoUpdater.git
-   cd SpicetifyAutoUpdater
-   ```
-2. **Open** `SpicetifyAutoUpdater.sln` in Visual Studio 2022 or later.
-3. **Restore NuGet packages** (should happen automatically).
-4. **Build** the solution (`Ctrl+Shift+B`).
-5. **Run** the application (`F5`).
+
+1. **Open** `SpicetifyAutoUpdater.sln` in Visual Studio 2022 or later.
+2. **Restore NuGet packages** (should happen automatically).
+3. **Build** the solution (`Ctrl+Shift+B`).
+4. **Run** the application (`F5`).
 
 ## Usage
 
