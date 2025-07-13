@@ -35,6 +35,8 @@ namespace SpicetifyAutoUpdater
 
             // Initialize console as hidden
             panelConsole.Visibility = Visibility.Collapsed;
+            panelProgress.Visibility = Visibility.Collapsed;
+            isConsoleVisible = false;
             this.Height = 300; // Initial height
         }
 
@@ -58,6 +60,60 @@ namespace SpicetifyAutoUpdater
         private async void Window_Loaded(object sender, RoutedEventArgs e)
         {
             await CheckSpicetifyInstallation();
+        }
+
+        private void ShowProgress(string message = "Installing...")
+        {
+            Dispatcher.Invoke(() => {
+                panelProgress.Visibility = Visibility.Visible;
+                lblProgress.Text = message;
+                progressBar.IsIndeterminate = true;
+                panelConsole.Visibility = Visibility.Collapsed;
+                isConsoleVisible = false;
+                // Hide main content
+                btnCheckUpdates.Visibility = Visibility.Collapsed;
+            });
+        }
+
+        private void HideProgress()
+        {
+            Dispatcher.Invoke(() => {
+                panelProgress.Visibility = Visibility.Collapsed;
+                if (!isConsoleVisible)
+                {
+                    btnCheckUpdates.Visibility = Visibility.Visible;
+                }
+            });
+        }
+
+        private void ShowConsole()
+        {
+            Dispatcher.Invoke(() => {
+                panelConsole.Visibility = Visibility.Visible;
+                panelProgress.Visibility = Visibility.Collapsed;
+                isConsoleVisible = true;
+                btnCheckUpdates.Visibility = Visibility.Collapsed;
+            });
+        }
+
+        private void HideConsole()
+        {
+            Dispatcher.Invoke(() => {
+                panelConsole.Visibility = Visibility.Collapsed;
+                isConsoleVisible = false;
+                if (panelProgress.Visibility != Visibility.Visible)
+                {
+                    btnCheckUpdates.Visibility = Visibility.Visible;
+                }
+            });
+        }
+
+        private void ScrollConsoleToEnd()
+        {
+            Dispatcher.Invoke(() => {
+                txtOutput.CaretIndex = txtOutput.Text.Length;
+                txtOutput.ScrollToEnd();
+            });
         }
 
         private async Task CheckSpicetifyInstallation()
@@ -97,12 +153,8 @@ namespace SpicetifyAutoUpdater
                 if (res == MessageBoxResult.Yes)
                 {
                     isInstalling = true;
-                    // Show console
-                    if (!isConsoleVisible)
-                    {
-                        btnConsole_Click(this, new RoutedEventArgs());
-                    }
-                    txtOutput.AppendText("Installing Spicetify...\r\n");
+                    ShowProgress("Installing Spicetify and Marketplace...");
+                    txtOutput.Clear();
                     string installOutput = await InstallSpicetifyAndMarketplace();
                     // Check for success message in output
                     if (!string.IsNullOrEmpty(installOutput) && installOutput.ToLower().Contains("run spicetify -h to get started"))
@@ -111,31 +163,18 @@ namespace SpicetifyAutoUpdater
                         btnCheckUpdates.Content = "Spicetify Installed!";
                         installCompleted = true;
                         isInstalling = false;
-                        var openSpotify = MessageBox.Show(
-                            "Spicetify and Spicetify Marketplace were successfully installed! Would you like to close this app and open Spotify now?",
-                            "Installation Complete",
-                            MessageBoxButton.YesNo,
-                            MessageBoxImage.Question);
-                        if (openSpotify == MessageBoxResult.Yes)
+                        HideProgress();
+                        if (!isConsoleVisible)
                         {
-                            try
-                            {
-                                Process.Start(new ProcessStartInfo
-                                {
-                                    FileName = "spotify",
-                                    UseShellExecute = true
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                ModernMessageBox.Show($"Failed to open Spotify: {ex.Message}", "Error", MessageBoxImage.Error);
-                            }
-                            this.Close();
+                            btnCheckUpdates.Visibility = Visibility.Collapsed;
                         }
+                        // Show installed message in main content
+                        ShowInstalledMessage();
                     }
                     else
                     {
                         isInstalling = false;
+                        HideProgress();
                         ModernMessageBox.Show("Spicetify installation did not complete successfully. Please check the console output for details.", "Install Failed", MessageBoxImage.Error);
                     }
                     // Re-check installation only if not completed or closing
@@ -151,6 +190,41 @@ namespace SpicetifyAutoUpdater
                     btnCheckUpdates.Content = "Spicetify Not Found";
                 }
             }
+        }
+
+        private void ShowInstalledMessage()
+        {
+            Dispatcher.Invoke(() => {
+                // Hide the install button
+                btnCheckUpdates.Visibility = Visibility.Collapsed;
+                // Add or show a label in the main content area
+                var parent = btnCheckUpdates.Parent as Panel;
+                if (parent != null)
+                {
+                    // Remove any previous installed label
+                    foreach (var child in parent.Children)
+                    {
+                        if (child is Label lbl && lbl.Name == "lblInstalledSuccess")
+                        {
+                            parent.Children.Remove(lbl);
+                            break;
+                        }
+                    }
+                    // Add new label
+                    var installedLabel = new Label
+                    {
+                        Name = "lblInstalledSuccess",
+                        Content = "Installed Successfully!",
+                        Foreground = new SolidColorBrush(Color.FromRgb(29, 185, 84)), // Spotify green
+                        FontSize = 20,
+                        FontWeight = FontWeights.Bold,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(0, 20, 0, 0)
+                    };
+                    parent.Children.Add(installedLabel);
+                }
+            });
         }
 
         // Sequential install: Spicetify, wait for message, then Marketplace
@@ -272,7 +346,10 @@ namespace SpicetifyAutoUpdater
                 if (e.Data != null)
                 {
                     outputBuilder.AppendLine(e.Data);
-                    this.Dispatcher.Invoke(() => txtOutput.AppendText(e.Data + "\r\n"));
+                    this.Dispatcher.Invoke(() => {
+                        txtOutput.AppendText(e.Data + "\r\n");
+                        ScrollConsoleToEnd();
+                    });
                     onOutputLine?.Invoke(e.Data);
                 }
             };
@@ -280,17 +357,26 @@ namespace SpicetifyAutoUpdater
                 if (e.Data != null)
                 {
                     outputBuilder.AppendLine(e.Data);
-                    this.Dispatcher.Invoke(() => txtOutput.AppendText("ERROR: " + e.Data + "\r\n"));
+                    this.Dispatcher.Invoke(() => {
+                        txtOutput.AppendText("ERROR: " + e.Data + "\r\n");
+                        ScrollConsoleToEnd();
+                    });
                     onOutputLine?.Invoke(e.Data);
                 }
             };
 
-            this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] Starting process: {command} {arguments}\r\n"));
+            this.Dispatcher.Invoke(() => {
+                txtOutput.AppendText($"[DEBUG] Starting process: {command} {arguments}\r\n");
+                ScrollConsoleToEnd();
+            });
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             await process.WaitForExitAsync();
-            this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] Process exited: {command} {arguments} (ExitCode: {process.ExitCode})\r\n"));
+            this.Dispatcher.Invoke(() => {
+                txtOutput.AppendText($"[DEBUG] Process exited: {command} {arguments} (ExitCode: {process.ExitCode})\r\n");
+                ScrollConsoleToEnd();
+            });
 
             if (process.ExitCode != 0 && !outputBuilder.ToString().Contains("is not recognized"))
             {
@@ -323,6 +409,42 @@ namespace SpicetifyAutoUpdater
         private async Task<string> InstallSpicetifyMarketplaceWithDebug()
         {
             this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Entered InstallSpicetifyMarketplaceWithDebug\r\n"));
+            // Merge registry PATH with current process PATH before running the marketplace install
+            try
+            {
+                var regKey = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager\Environment", false);
+                string? regPath = null;
+                if (regKey != null)
+                {
+                    regPath = regKey.GetValue("Path", "", Microsoft.Win32.RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+                }
+                var processPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process) ?? "";
+                var systemPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine) ?? "";
+                var userPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+                var allPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                void AddPaths(string? pathStr)
+                {
+                    if (!string.IsNullOrEmpty(pathStr))
+                    {
+                        foreach (var p in pathStr.Split(';'))
+                        {
+                            var trimmed = p.Trim();
+                            if (!string.IsNullOrEmpty(trimmed)) allPaths.Add(trimmed);
+                        }
+                    }
+                }
+                AddPaths(processPath);
+                AddPaths(regPath);
+                AddPaths(systemPath);
+                AddPaths(userPath);
+                var mergedPath = string.Join(";", allPaths);
+                Environment.SetEnvironmentVariable("PATH", mergedPath, EnvironmentVariableTarget.Process);
+                this.Dispatcher.Invoke(() => txtOutput.AppendText("[DEBUG] Merged and refreshed PATH before Marketplace install.\r\n"));
+            }
+            catch (Exception ex)
+            {
+                this.Dispatcher.Invoke(() => txtOutput.AppendText($"[DEBUG] Failed to merge/refresh PATH: {ex.Message}\r\n"));
+            }
             var psCmd = "iwr -useb https://raw.githubusercontent.com/spicetify/marketplace/main/resources/install.ps1 | iex";
             var outputBuilder = new StringBuilder();
             bool success = false;
@@ -365,13 +487,14 @@ namespace SpicetifyAutoUpdater
             {
                 btnConsole.ToolTip = "Hide Console";
                 AnimateWindowHeight(500); // Expand window smoothly
-                panelConsole.Visibility = Visibility.Visible;
+                ShowConsole();
+                ScrollConsoleToEnd();
             }
             else
             {
                 btnConsole.ToolTip = "Show Console";
                 AnimateWindowHeight(300); // Collapse window smoothly
-                panelConsole.Visibility = Visibility.Collapsed;
+                HideConsole();
             }
         }
 
