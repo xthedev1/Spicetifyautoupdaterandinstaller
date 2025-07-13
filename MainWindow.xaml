@@ -9,7 +9,6 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        MouseLeftButtonDown="Window_MouseLeftButtonDown"
         Loaded="Window_Loaded">
     
     <Window.Resources>
@@ -181,21 +180,39 @@
                 </StackPanel>
             </Grid>
             
+            <!-- ProgressBar and label overlay (move to its own Grid row for global access) -->
+            <Grid Grid.Row="1" x:Name="panelProgress" Visibility="Collapsed" Background="#CC1C1C1C" Panel.ZIndex="10">
+                <StackPanel Orientation="Vertical" VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock x:Name="lblProgress" Text="Installing..." Foreground="{StaticResource TextWhite}" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <ProgressBar x:Name="progressBar" Width="300" Height="20" IsIndeterminate="True" Foreground="{StaticResource SpotifyGreen}" Background="#333"/>
+                </StackPanel>
+            </Grid>
+            
             <!-- Console Panel -->
             <Grid Grid.Row="2" x:Name="panelConsole" 
                   Background="{StaticResource ConsoleBrush}"
                   Height="200" 
-                  Visibility="Collapsed">
-                <TextBox x:Name="txtOutput"
-                         Background="{StaticResource ConsoleBrush}"
-                         Foreground="{StaticResource ConsoleText}"
-                         FontFamily="Consolas"
-                         FontSize="9"
-                         BorderThickness="0"
-                         IsReadOnly="True"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Auto"
-                         Margin="10"/>
+                  Visibility="Collapsed"
+                  Margin="0,0,0,10">
+                <Border Background="{StaticResource ConsoleBrush}" CornerRadius="8" BorderBrush="#222" BorderThickness="1" Margin="10" Padding="8">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.4"/>
+                    </Border.Effect>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Name="scrollConsole">
+                        <TextBox x:Name="txtOutput"
+                                 Background="{StaticResource ConsoleBrush}"
+                                 Foreground="{StaticResource ConsoleText}"
+                                 FontFamily="Cascadia Mono, Consolas, Segoe UI Mono, monospace"
+                                 FontSize="13"
+                                 BorderThickness="0"
+                                 IsReadOnly="True"
+                                 Padding="0"
+                                 MinHeight="160"
+                                 VerticalScrollBarVisibility="Hidden"
+                                 HorizontalScrollBarVisibility="Hidden"
+                                 TextWrapping="Wrap"/>
+                    </ScrollViewer>
+                </Border>
             </Grid>
         </Grid>
     </Border>
