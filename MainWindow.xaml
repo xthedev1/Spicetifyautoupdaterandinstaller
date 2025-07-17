@@ -198,20 +198,47 @@
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.4"/>
                     </Border.Effect>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Name="scrollConsole">
-                        <TextBox x:Name="txtOutput"
-                                 Background="{StaticResource ConsoleBrush}"
-                                 Foreground="{StaticResource ConsoleText}"
-                                 FontFamily="Cascadia Mono, Consolas, Segoe UI Mono, monospace"
-                                 FontSize="13"
-                                 BorderThickness="0"
-                                 IsReadOnly="True"
-                                 Padding="0"
-                                 MinHeight="160"
-                                 VerticalScrollBarVisibility="Hidden"
-                                 HorizontalScrollBarVisibility="Hidden"
-                                 TextWrapping="Wrap"/>
-                    </ScrollViewer>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        
+                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Name="scrollConsole">
+                            <TextBox x:Name="txtOutput"
+                                     Background="{StaticResource ConsoleBrush}"
+                                     Foreground="{StaticResource ConsoleText}"
+                                     FontFamily="Cascadia Mono, Consolas, Segoe UI Mono, monospace"
+                                     FontSize="13"
+                                     BorderThickness="0"
+                                     IsReadOnly="True"
+                                     Padding="0"
+                                     MinHeight="140"
+                                     VerticalScrollBarVisibility="Hidden"
+                                     HorizontalScrollBarVisibility="Hidden"
+                                     TextWrapping="Wrap"/>
+                        </ScrollViewer>
+                        
+                        <Border Grid.Row="1" Background="#1A1A1A" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="5,3,5,3" Margin="0,5,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text=">" Foreground="{StaticResource ConsoleText}" FontFamily="Cascadia Mono, Consolas, Segoe UI Mono, monospace" FontSize="13" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                <TextBox Grid.Column="1" x:Name="txtDebugInput"
+                                         Background="Transparent"
+                                         Foreground="{StaticResource ConsoleText}"
+                                         FontFamily="Cascadia Mono, Consolas, Segoe UI Mono, monospace"
+                                         FontSize="13"
+                                         BorderThickness="0"
+                                         Padding="0"
+                                         VerticalAlignment="Center"
+                                         KeyDown="txtDebugInput_KeyDown"
+                                         TextWrapping="NoWrap"/>
+                            </Grid>
+                        </Border>
+                    </Grid>
                 </Border>
             </Grid>
         </Grid>
