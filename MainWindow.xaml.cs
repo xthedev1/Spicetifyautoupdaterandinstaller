@@ -26,6 +26,8 @@ namespace SpicetifyAutoUpdater
         private bool isInstalling = false;
         private bool installCompleted = false;
         private bool isClosing = false;
+        private bool isDebugMode = false;
+        private bool isUpdating = false;
 
         public MainWindow()
         {
@@ -83,6 +85,12 @@ namespace SpicetifyAutoUpdater
                 {
                     btnCheckUpdates.Visibility = Visibility.Visible;
                 }
+                // Reset button state if no operations are running
+                if (!isUpdating && !isInstalling)
+                {
+                    btnCheckUpdates.IsEnabled = true;
+                    btnCheckUpdates.Content = "Check for Updates";
+                }
             });
         }
 
@@ -93,6 +101,16 @@ namespace SpicetifyAutoUpdater
                 panelProgress.Visibility = Visibility.Collapsed;
                 isConsoleVisible = true;
                 btnCheckUpdates.Visibility = Visibility.Collapsed;
+                
+                // Add welcome message if console is empty
+                if (string.IsNullOrWhiteSpace(txtOutput.Text))
+                {
+                    txtOutput.AppendText("=== Spicetify Auto Updater Console ===\r\n");
+                    txtOutput.AppendText("Type 'debug' to enter debug mode for advanced commands.\r\n");
+                    txtOutput.AppendText("Debug commands: help, force update, status, clear, exit\r\n\r\n");
+                }
+                
+                txtDebugInput.Focus();
             });
         }
 
@@ -114,6 +132,168 @@ namespace SpicetifyAutoUpdater
                 txtOutput.CaretIndex = txtOutput.Text.Length;
                 txtOutput.ScrollToEnd();
             });
+        }
+
+        private void txtDebugInput_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter)
+            {
+                var input = txtDebugInput.Text.Trim().ToLower();
+                if (input == "debug")
+                {
+                    Dispatcher.Invoke(() => {
+                        isDebugMode = true;
+                        txtOutput.AppendText("[DEBUG] Debug mode activated!\r\n");
+                        txtOutput.AppendText("[DEBUG] Available commands: help, force update, force install, status, clear, exit\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+                else if (input == "exit" || input == "quit")
+                {
+                    Dispatcher.Invoke(() => {
+                        isDebugMode = false;
+                        txtOutput.AppendText("[DEBUG] Debug mode deactivated.\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+                else if (isDebugMode && input == "force update")
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.AppendText("[DEBUG] Force update command received.\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                    _ = ForceUpdateInDebugMode();
+                }
+                else if (isDebugMode && input == "force install")
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.AppendText("[DEBUG] Force install command received.\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                    _ = ForceInstallInDebugMode();
+                }
+                else if (isDebugMode && input == "help")
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.AppendText("[DEBUG] Available commands:\r\n");
+                        txtOutput.AppendText("[DEBUG]   help - Show this help message\r\n");
+                        txtOutput.AppendText("[DEBUG]   force update - Force update Spicetify regardless of version\r\n");
+                        txtOutput.AppendText("[DEBUG]   force install - Force install Spicetify and Marketplace\r\n");
+                        txtOutput.AppendText("[DEBUG]   status - Show current debug and installation status\r\n");
+                        txtOutput.AppendText("[DEBUG]   clear - Clear console output\r\n");
+                        txtOutput.AppendText("[DEBUG]   exit/quit - Exit debug mode\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+                else if (isDebugMode && input == "status")
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.AppendText($"[DEBUG] Debug mode: {(isDebugMode ? "ON" : "OFF")}\r\n");
+                        txtOutput.AppendText($"[DEBUG] Spicetify installed: {(isSpicetifyInstalled ? "YES" : "NO")}\r\n");
+                        txtOutput.AppendText($"[DEBUG] Currently installing: {(isInstalling ? "YES" : "NO")}\r\n");
+                        txtOutput.AppendText($"[DEBUG] Currently updating: {(isUpdating ? "YES" : "NO")}\r\n");
+                        txtOutput.AppendText($"[DEBUG] Install completed: {(installCompleted ? "YES" : "NO")}\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+                else if (isDebugMode && input == "clear")
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.Clear();
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+                else if (isDebugMode)
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.AppendText($"[DEBUG] Unknown command: {input}\r\n");
+                        txtOutput.AppendText("[DEBUG] Type 'help' for available commands.\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+                else
+                {
+                    Dispatcher.Invoke(() => {
+                        txtOutput.AppendText($"[CONSOLE] Type 'debug' to enter debug mode.\r\n");
+                        txtDebugInput.Text = "";
+                        ScrollConsoleToEnd();
+                    });
+                }
+            }
+        }
+
+        private async Task ForceUpdateInDebugMode()
+        {
+            if (!isDebugMode) return;
+
+            isUpdating = true;
+            ShowProgress("Force updating Spicetify...");
+            txtOutput.Clear();
+            txtOutput.AppendText("[DEBUG] Starting force update process...\r\n");
+            
+            try
+            {
+                string updateOutput = await ExecuteCommandAsyncWithCallback(
+                    "spicetify",
+                    "update",
+                    true,
+                    (line) =>
+                    {
+                        if (line != null)
+                        {
+                            txtOutput.AppendText("[UPDATE] " + line + "\r\n");
+                            ScrollConsoleToEnd();
+                        }
+                    }
+                ) ?? string.Empty;
+
+                txtOutput.AppendText("\r\n[DEBUG] Force update completed!\r\n");
+                ModernMessageBox.Show("Force update completed successfully!", "Update Complete", MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                txtOutput.AppendText($"\r\n[DEBUG] Error during force update: {ex.Message}\r\n");
+                ModernMessageBox.Show($"Force update failed: {ex.Message}", "Update Failed", MessageBoxImage.Error);
+            }
+            finally
+            {
+                isUpdating = false;
+                HideProgress();
+            }
+        }
+
+        private async Task ForceInstallInDebugMode()
+        {
+            if (!isDebugMode) return;
+
+            isInstalling = true;
+            ShowProgress("Force installing Spicetify and Marketplace...");
+            txtOutput.Clear();
+            txtOutput.AppendText("[DEBUG] Starting force install process...\r\n");
+            try
+            {
+                string installOutput = await InstallSpicetifyAndMarketplace();
+                txtOutput.AppendText("\r\n[DEBUG] Force install completed!\r\n");
+                ModernMessageBox.Show("Force install completed!", "Install Complete", MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                txtOutput.AppendText($"\r\n[DEBUG] Error during force install: {ex.Message}\r\n");
+                ModernMessageBox.Show($"Force install failed: {ex.Message}", "Install Failed", MessageBoxImage.Error);
+            }
+            finally
+            {
+                isInstalling = false;
+                HideProgress();
+            }
         }
 
         private async Task CheckSpicetifyInstallation()
@@ -350,7 +530,10 @@ namespace SpicetifyAutoUpdater
                         txtOutput.AppendText(e.Data + "\r\n");
                         ScrollConsoleToEnd();
                     });
-                    onOutputLine?.Invoke(e.Data);
+                    if (onOutputLine != null)
+                    {
+                        this.Dispatcher.Invoke(() => onOutputLine(e.Data));
+                    }
                 }
             };
             process.ErrorDataReceived += (s, e) => {
@@ -361,7 +544,10 @@ namespace SpicetifyAutoUpdater
                         txtOutput.AppendText("ERROR: " + e.Data + "\r\n");
                         ScrollConsoleToEnd();
                     });
-                    onOutputLine?.Invoke(e.Data);
+                    if (onOutputLine != null)
+                    {
+                        this.Dispatcher.Invoke(() => onOutputLine(e.Data));
+                    }
                 }
             };
 
@@ -522,6 +708,12 @@ namespace SpicetifyAutoUpdater
                 return;
             }
 
+            if (isUpdating || isInstalling)
+            {
+                ModernMessageBox.Show("An operation is already in progress. Please wait.", "Operation in Progress", MessageBoxImage.Warning);
+                return;
+            }
+
             btnCheckUpdates.IsEnabled = false;
             btnCheckUpdates.Content = "Checking...";
 
@@ -535,13 +727,22 @@ namespace SpicetifyAutoUpdater
             }
             finally
             {
-                btnCheckUpdates.IsEnabled = true;
-                btnCheckUpdates.Content = "Check for Updates";
+                if (!isUpdating && !isInstalling)
+                {
+                    btnCheckUpdates.IsEnabled = true;
+                    btnCheckUpdates.Content = "Check for Updates";
+                }
             }
         }
 
         private async Task CheckForUpdates()
         {
+            if (isUpdating || isInstalling)
+            {
+                ModernMessageBox.Show("An operation is already in progress. Please wait.", "Operation in Progress", MessageBoxImage.Warning);
+                return;
+            }
+
             string? currentVersion = (await ExecuteCommandAsync("spicetify", "--version", false))?.Trim();
             if (string.IsNullOrEmpty(currentVersion))
             {
@@ -556,18 +757,33 @@ namespace SpicetifyAutoUpdater
                 return;
             }
 
-            if (currentVersion == latestVersion)
+            if (currentVersion == latestVersion && !isDebugMode)
             {
                 ModernMessageBox.Show($"You are using the latest version: {currentVersion}", "Up to Date", MessageBoxImage.Information);
             }
             else
             {
-                // Show update panel and perform update
+                // Show update panel and perform update with progress bar
                 if (!isConsoleVisible)
                 {
                     btnConsole_Click(this, new RoutedEventArgs()); // Programmatically click the console button
                 }
-                txtOutput.Text = $"New version available!\r\nCurrent: {currentVersion}\r\nLatest:  {latestVersion}\r\n\r\nUpdating Spicetify...\r\n";
+                
+                isUpdating = true;
+                ShowProgress("Checking for updates...");
+                txtOutput.Clear();
+                txtOutput.AppendText($"[UPDATE] Current version: {currentVersion}\r\n");
+                txtOutput.AppendText($"[UPDATE] Latest version: {latestVersion}\r\n");
+                
+                if (currentVersion == latestVersion && isDebugMode)
+                {
+                    txtOutput.AppendText("[DEBUG] Force update requested despite being on latest version.\r\n");
+                }
+                else
+                {
+                    txtOutput.AppendText("[UPDATE] New version available! Starting update...\r\n");
+                }
+                
                 await PerformUpdate();
             }
         }
@@ -591,12 +807,36 @@ namespace SpicetifyAutoUpdater
         {
             try
             {
-                string updateOutput = await ExecuteCommandAsync("spicetify", "update", true);
-                txtOutput.AppendText("\r\nUpdate completed successfully!\r\n");
+                ShowProgress("Updating Spicetify...");
+                txtOutput.AppendText("[UPDATE] Starting Spicetify update process...\r\n");
+                
+                string updateOutput = await ExecuteCommandAsyncWithCallback(
+                    "spicetify",
+                    "update",
+                    true,
+                    (line) =>
+                    {
+                        if (line != null)
+                        {
+                            this.Dispatcher.Invoke(() => {
+                                txtOutput.AppendText("[UPDATE] " + line + "\r\n");
+                                ScrollConsoleToEnd();
+                            });
+                        }
+                    }
+                ) ?? string.Empty;
+
+                txtOutput.AppendText("\r\n[UPDATE] Update completed successfully!\r\n");
+                ModernMessageBox.Show("Spicetify has been updated successfully!", "Update Complete", MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                txtOutput.AppendText($"\r\nError during update: {ex.Message}\r\n");
+                txtOutput.AppendText($"\r\n[UPDATE] Error during update: {ex.Message}\r\n");
+                ModernMessageBox.Show($"Update failed: {ex.Message}", "Update Failed", MessageBoxImage.Error);
+            }
+            finally
+            {
+                HideProgress();
             }
         }
 
